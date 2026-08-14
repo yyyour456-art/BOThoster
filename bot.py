@@ -14,14 +14,12 @@ from user_manager import (
     delete_file_and_process, cleanup_files
 )
 
-# ऑटो-क्लीनअप और ऑटो-पिंग
 scheduler = BackgroundScheduler()
 scheduler.add_job(cleanup_files, 'interval', minutes=1)
 scheduler.add_job(keep_alive, 'interval', minutes=10)
 scheduler.start()
 
 def get_base_url():
-    # Render का URL अपने आप उठा लेगा
     return os.environ.get("RENDER_EXTERNAL_URL", "http://localhost:8080")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -30,7 +28,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(
         f"👋 **होस्टिंग हब में आपका स्वागत है!{admin_tag}**\n\n"
-        "📁 मुझे कोई भी फाइल (.html, .py, .png, .mp4 आदि) भेजें।\n"
+        "📁 मुझे कोई भी फाइल (.html, .py, .pdf, .jpg आदि) भेजें।\n"
         "मैं उसे 24/7 वेब लिंक पर लाइव कर दूंगा।\n\n"
         "📌 **कमांड्स:**\n"
         "• `/myfiles` - आपकी फाइल्स\n"
@@ -40,73 +38,168 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
+    try:
+        user_id = update.effective_user.id
 
-    if user_id in waiting_for_custom:
-        filename = waiting_for_custom[user_id]
-        text = update.message.text
-        if text and text.isdigit():
-            days = int(text)
-            file_expiry[filename] = time.time() + (days * 86400)
-            file_owners[filename] = user_id
-            del waiting_for_custom[user_id]
-            
-            clean_name = filename.split("_", 1)[-1] if "_" in filename else filename
-            msg = f"✅ **{clean_name}** लाइव हो गई!\n\n🔗 **डायरेक्ट लिंक:** {get_base_url()}/files/{filename}\n⏱️ **समय:** {days} दिन"
-            
-            if filename.endswith(".py"):
-                proc = subprocess.Popen([sys.executable, os.path.join(STORAGE_DIR, filename)])
-                running_bots[filename] = proc
-                msg += f"\n🤖 **सब-बॉट चालू हो गया!**"
-                
-            await update.message.reply_text(msg, parse_mode="Markdown")
-            return
+        if update.message.document:
+            raw_filename = update.message.document.file_name
+            file_obj = await context.bot.get_file(update.message.document.file_id)
+        elif update.message.photo:
+            raw_filename = f"photo_{int(time.time())}.jpg"
+            file_obj = await context.bot.get_file(update.message.photo[-1].file_id)
         else:
-            await update.message.reply_text("⚠️ कृपया केवल संख्या (दिनों की संख्या) भेजें।")
             return
 
-    if update.message.document:
-        raw_filename = update.message.document.file_name
-        file_obj = await context.bot.get_file(update.message.document.file_id)
-    elif update.message.photo:
-        raw_filename = f"photo_{int(time.time())}.jpg"
-        file_obj = await context.bot.get_file(update.message.photo[-1].file_id)
-    else:
-        return
+        filename = f"{user_id}_{raw_filename}"
+        await file_obj.download_to_drive(os.path.join(STORAGE_DIR, filename))
+        file_owners[filename] = user_id
 
-    filename = f"{user_id}_{raw_filename}"
-    await file_obj.download_to_drive(os.path.join(STORAGE_DIR, filename))
-    file_owners[filename] = user_id
+        # Buttons simplified using clean delimiter '|'
+        keyboard = [
+            [
+                InlineKeyboardButton("⏱️ 1 घंटा", callback_data=f"time|3600|{filename}"),
+                InlineKeyboardButton("⏱️ 1 दिन", callback_data=f"time|86400|{filename}")
+            ],
+            [
+                InlineKeyboardButton("⏱️ 7 दिन", callback_data=f"time|604800|{filename}"),
+                InlineKeyboardButton("⏱️ 30 दिन", callback_data=f"time|2592000|{filename}")
+            ],
+            [
+                InlineKeyboardButton("♾️ परमानेंट", callback_data=f"time|perm|{filename}")
+            ]
+        ]
 
-    keyboard = [
-        [InlineKeyboardButton("⏱️ 1 घंटा", callback_data=f"t_3600_{filename}"), InlineKeyboardButton("⏱️ 1 दिन", callback_data=f"t_86400_{filename}")],
-        [InlineKeyboardButton("⏱️ 7 दिन", callback_data=f"t_604800_{filename}"), InlineKeyboardButton("⏱️ 30 दिन", callback_data=f"t_2592000_{filename}")],
-        [InlineKeyboardButton("♾️ परमानेंट", callback_data=f"t_perm_{filename}"), InlineKeyboardButton("✏️ कस्टम दिन", callback_data=f"t_custom_{filename}")]
-    ]
-
-    await update.message.reply_text(
-        f"📁 **फाइल मिली:** `{raw_filename}`\n\n⏱️ कितने समय के लिए होस्ट करना है?",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode="Markdown"
-    )
+        await update.message.reply_text(
+            f"📁 **फाइल मिली:** `{raw_filename}`\n\n⏱️ कृपया नीचे दिए गए बटन पर क्लिक करके समय चुनें:",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        print(f"Error in handle_document: {e}")
+        await update.message.reply_text("❌ फाइल सेव करने में समस्या आई। कृपया पुनः प्रयास करें।")
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
-    user_id = query.from_user.id
-    data = query.data
+    await query.answer() # Button click acknowledgement
 
-    if data.startswith("t_"):
-        parts = data.split("_", 2)
-        time_type = parts[1]
-        filename = parts[2]
+    try:
+        data = query.data
+        user_id = query.from_user.id
 
-        if time_type == "custom":
-            waiting_for_custom[user_id] = filename
-            await query.edit_message_text("✏️ दिनों की संख्या लिख कर भेजें:")
-            return
+        if data.startswith("time|"):
+            _, time_val, filename = data.split("|", 2)
 
-        if time_type == "perm":
+            if time_val == "perm":
+                file_expiry[filename] = -1
+                time_str = "♾️ परमानेंट"
+            else:
+                seconds = int(time_val)
+                file_expiry[filename] = time.time() + seconds
+                if seconds >= 86400:
+                    time_str = f"{seconds // 86400} दिन"
+                else:
+                    time_str = f"{seconds // 3600} घंटा"
+
+            clean_name = filename.split("_", 1)[-1] if "_" in filename else filename
+            link = f"{get_base_url()}/files/{filename}"
+
+            msg = (
+                f"✅ **{clean_name}** सफलता से लाइव हो गई!\n\n"
+                f"🔗 **डायरेक्ट वेब लिंक:**\n`{link}`\n\n"
+                f"⏱️ **वैधता:** {time_str}"
+            )
+
+            if filename.endswith(".py"):
+                if filename in running_bots:
+                    try:
+                        running_bots[filename].terminate()
+                    except:
+                        pass
+                proc = subprocess.Popen([sys.executable, os.path.join(STORAGE_DIR, filename)])
+                running_bots[filename] = proc
+                msg += "\n\n🤖 **सब-बॉट बैकग्राउंड में स्टार्ट हो गया!**"
+
+            keyboard = [[InlineKeyboardButton("🗑️ फाइल डिलीट करें", callback_data=f"del|{filename}")]]
+            await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+
+        elif data.startswith("del|"):
+            _, filename = data.split("|", 1)
+            if file_owners.get(filename) == user_id or is_admin(user_id):
+                delete_file_and_process(filename)
+                await query.edit_message_text("🗑️ फाइल सफलता से डिलीट कर दी गई!")
+            else:
+                await query.edit_message_text("⛔ यह आपकी फाइल नहीं है।")
+
+    except Exception as e:
+        print(f"Error in button_callback: {e}")
+        await query.message.reply_text("❌ बटन प्रोसेस करने में त्रुटि हुई।")
+
+async def myfiles(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    user_files = [f for f, owner in file_owners.items() if owner == user_id]
+
+    if not user_files:
+        await update.message.reply_text("📂 आपकी कोई फाइल होस्ट नहीं है।")
+        return
+
+    msg = "📁 **आपकी एक्टिव फाइल्स:**\n\n"
+    keyboard = []
+
+    for fname in user_files:
+        clean_name = fname.split("_", 1)[-1] if "_" in fname else fname
+        msg += f"• `{clean_name}`\n"
+        keyboard.append([
+            InlineKeyboardButton(f"🔗 View File", url=f"{get_base_url()}/files/{fname}"),
+            InlineKeyboardButton("🗑️ Delete", callback_data=f"del|{fname}")
+        ])
+
+    await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+
+async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if not is_admin(user_id):
+        return
+
+    all_files = os.listdir(STORAGE_DIR)
+    if not all_files:
+        await update.message.reply_text("👑 **एडमिन पैनल:** कोई फाइल नहीं है।")
+        return
+
+    msg = f"👑 **एडमिन पैनल**\n\n📁 कुल फाइल्स: `{len(all_files)}`\n\n"
+    keyboard = []
+
+    for fname in all_files:
+        clean_name = fname.split("_", 1)[-1] if "_" in fname else fname
+        msg += f"• `{clean_name}`\n"
+        keyboard.append([
+            InlineKeyboardButton(f"🔗 View", url=f"{get_base_url()}/files/{fname}"),
+            InlineKeyboardButton("🗑️ Delete", callback_data=f"del|{fname}")
+        ])
+
+    await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None, parse_mode="Markdown")
+
+async def manual_cleanup(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    cleanup_files()
+    await update.message.reply_text("🧹 मैन्युअल क्लीनअप पूरा हुआ!")
+
+def main():
+    threading.Thread(target=run_web_server, daemon=True).start()
+
+    app = Application.builder().token(BOT_TOKEN).build()
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("myfiles", myfiles))
+    app.add_handler(CommandHandler("admin", admin_panel))
+    app.add_handler(CommandHandler("cleanup", manual_cleanup))
+    
+    app.add_handler(MessageHandler(filters.Document.ALL | filters.PHOTO, handle_document))
+    app.add_handler(CallbackQueryHandler(button_callback))
+
+    print("Bot Running...")
+    app.run_polling()
+
+if __name__ == "__main__":
+    main()
             file_expiry[filename] = -1
             time_str = "♾️ परमानेंट"
         else:
