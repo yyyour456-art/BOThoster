@@ -188,7 +188,7 @@ def main():
     app.add_handler(CommandHandler("myfiles", myfiles))
     app.add_handler(CommandHandler("admin", admin_panel))
     app.add_handler(CommandHandler("cleanup", manual_cleanup))
-    app.add_handler(MessageHandler(filters.DOCUMENT | filters.PHOTO | filters.TEXT, handle_document))
+    app.add_handler(MessageHandler(filters.Document.ALL | filters.PHOTO | filters.TEXT, handle_document))
     app.add_handler(CallbackQueryHandler(button_callback))
 
     print("Bot Running...")
