@@ -1,7 +1,7 @@
 import os
 
 # अपना Bot Token और Admin ID यहाँ डालें (या Render के Environment Variables में सेट करें)
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "8385868788:AAHBvEie-9r_-GxBynN7y3FPq75u-qBwo6Q")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "8385868788:AAHM5i4iIp7_V67AG7ztuFH8nvX3amuuOVE")
 
 # एक से ज्यादा एडमिन ID कॉमा (,) लगाकर डाल सकते हैं
 ADMIN_IDS = [
