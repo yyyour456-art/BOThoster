@@ -1,11 +1,11 @@
 import os
 
 # अपना Bot Token और Admin ID यहाँ डालें (या Render के Environment Variables में सेट करें)
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "8385868788:AAHM5i4iIp7_V67AG7ztuFH8nvX3amuuOVE")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "bot")
 
 # एक से ज्यादा एडमिन ID कॉमा (,) लगाकर डाल सकते हैं
 ADMIN_IDS = [
-    int(x) for x in os.environ.get("ADMIN_IDS", "8691519315").split(",") if x.strip().isdigit()
+    int(x) for x in os.environ.get("ADMIN_IDS", "id").split(",") if x.strip().isdigit()
 ]
 
 STORAGE_DIR = "hosted_files"
